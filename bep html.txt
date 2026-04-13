@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quest Kingdom 재무 시뮬레이터 v11.0</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+        }
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .grid { display: grid; grid-template-columns: 380px 1fr; gap: 25px; }
+        .card { background: var(--card); padding: 25px; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .input-group { margin-bottom: 20px; }
+        label { display: block; font-weight: 700; margin-bottom: 8px; font-size: 14px; color: #475569; }
+        
+        /* 콤마 포맷팅을 위해 텍스트 타입 사용 */
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+            text-align: right;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+        }
+        input[type="text"]:focus { border-color: var(--primary); outline: none; }
+        
+        .stat-box {
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            background: #f1f5f9;
+            border-left: 5px solid var(--primary);
+        }
+        .stat-label { font-size: 12px; color: #64748b; font-weight: 700; }
+        .stat-val { font-size: 20px; font-weight: 700; color: #0f172a; }
+        
+        .chart-container { position: relative; height: 550px; width: 100%; }
+        .summary-note {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0fdf4;
+            border-radius: 10px;
+            font-size: 13px;
+            line-height: 1.6;
+            border: 1px solid #dcfce7;
+            color: #166534;
+        }
+        .highlight-formula { background: #dcfce7; padding: 2px 4px; font-weight: bold; border-radius: 4px; color: #166534; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>Quest Kingdom <span style="color:var(--primary)">재무 시뮬레이션 v11.0</span></h1>
+        <p>가독성 개선 및 고정 원가 모델 (보수적 접근)</p>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h3 style="margin-top:0; padding-bottom:10px; border-bottom:1px solid #eee;">시뮬레이션 변수 설정</h3>
+            
+            <div class="input-group">
+                <label>Year 1 시작 사용자 (명)</label>
+                <input type="text" id="startUsers" value="35,000">
+            </div>
+
+            <div class="input-group">
+                <label>Year 2 시작 광고 수익 (원)</label>
+                <input type="text" id="baseAdRev" value="200,000,000">
+                <small style="color:#64748b;">* 이후 매년 10% 복리 성장</small>
+            </div>
+
+            <div class="input-group">
+                <label>매출원가 (고정)</label>
+                <div style="padding: 12px; background: #fef2f2; border-radius: 8px; font-weight: bold; color: var(--danger); border: 1px solid #fee2e2; text-align: right;">연 200,000,000원</div>
+            </div>
+
+            <div class="stat-box">
+                <div class="stat-label">Year 1 총 매출</div>
+                <div class="stat-val" id="y1Rev">0억 원</div>
+            </div>
+
+            <div class="stat-box" style="border-left-color: var(--secondary);">
+                <div class="stat-label">Year 5 매출총이익</div>
+                <div class="stat-val" id="y5Profit">0억 원</div>
+            </div>
+
+            <div class="summary-note">
+                <strong>숫자 포맷팅 가이드:</strong><br>
+                - 입력창에 숫자를 입력하면 <span class="highlight-formula">천 단위 콤마(,)</span>가 자동 적용됩니다.<br>
+                - <strong>B2C 성장:</strong> Year 2부터 전년 대비 <span class="highlight-formula">1.1^4</span>배 성장.<br>
+                - <strong>광고 성장:</strong> Year 2 시작값 기준 매년 <span class="highlight-formula">10%</span> 증가.
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="chart-container">
+                <canvas id="mainChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 숫자 포맷팅 함수 (콤마 추가)
+    function formatNumber(n) {
+        return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+
+    // 콤마 제거 함수 (계산용)
+    function unformatNumber(s) {
+        return parseInt(s.replace(/,/g, "")) || 0;
+    }
+
+    const startUsersInput = document.getElementById('startUsers');
+    const baseAdRevInput = document.getElementById('baseAdRev');
+    const y1RevDisp = document.getElementById('y1Rev');
+    const y5ProfitDisp = document.getElementById('y5Profit');
+
+    let mainChart;
+
+    // 입력 시 실시간 콤마 적용
+    [startUsersInput, baseAdRevInput].forEach(input => {
+        input.addEventListener('input', function(e) {
+            let val = unformatNumber(e.target.value);
+            e.target.value = formatNumber(val);
+            calculate();
+        });
+    });
+
+    function calculate() {
+        const startUsers = unformatNumber(startUsersInput.value);
+        const initialAdRevInput = unformatNumber(baseAdRevInput.value);
+        const fixedCogs = 200000000; // 연 2억 고정 원가
+        
+        const labels = ['Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5'];
+        const revenueData = [];
+        const cogsData = [];
+        const grossProfitData = [];
+
+        let currentB2C = 0;
+        let currentAdRev = 0;
+
+        for (let i = 1; i <= 5; i++) {
+            if (i === 1) {
+                currentB2C = startUsers * 0.025 * Math.pow(1.25, 3) * 9900 * 12;
+            } else {
+                currentB2C = currentB2C * Math.pow(1.1, 4);
+            }
+
+            if (i === 1) {
+                currentAdRev = 0;
+            } else if (i === 2) {
+                currentAdRev = initialAdRevInput; 
+            } else {
+                currentAdRev = currentAdRev * 1.1;
+            }
+
+            let totalRev = currentB2C + currentAdRev;
+            let grossProfit = totalRev - fixedCogs;
+
+            revenueData.push(totalRev / 100000000);
+            cogsData.push(fixedCogs / 100000000);
+            grossProfitData.push(grossProfit / 100000000);
+
+            if (i === 1) y1RevDisp.innerText = (totalRev / 100000000).toFixed(2) + '억 원';
+            if (i === 5) y5ProfitDisp.innerText = (grossProfit / 100000000).toFixed(2) + '억 원';
+        }
+
+        renderChart(labels, revenueData, cogsData, grossProfitData);
+    }
+
+    function renderChart(labels, revs, costs, profits) {
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        if (mainChart) mainChart.destroy();
+
+        mainChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: '매출총이익 (억 원)',
+                        data: profits,
+                        type: 'line',
+                        borderColor: '#10b981',
+                        backgroundColor: '#10b981',
+                        borderWidth: 4,
+                        tension: 0.3,
+                        pointRadius: 6,
+                        fill: false,
+                        order: 1
+                    },
+                    {
+                        label: '총 매출액 (억 원)',
+                        data: revs,
+                        backgroundColor: 'rgba(79, 70, 229, 0.7)',
+                        borderRadius: 6,
+                        order: 2
+                    },
+                    {
+                        label: '매출원가 (고정 2억)',
+                        data: costs,
+                        backgroundColor: 'rgba(239, 68, 68, 0.4)',
+                        borderRadius: 6,
+                        order: 3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: '금액 (단위: 억 원)', font: { weight: 'bold' } }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: { 
+                        mode: 'index', 
+                        intersect: false,
+                        callbacks: {
+                            label: (ctx) => {
+                                // 툴팁에도 콤마 적용 (억 단위라 소수점 2자리까지)
+                                return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + '억';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    window.onload = calculate;
+</script>
+
+</body>
+</html>

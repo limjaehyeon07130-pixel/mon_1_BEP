@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quest Kingdom 재무 시뮬레이터 v11.0</title>
+    <title>Quest Kingdom 재무 시뮬레이터 v12.0</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
     <style>
@@ -11,6 +11,7 @@
             --primary: #4f46e5;
             --secondary: #10b981;
             --danger: #ef4444;
+            --warning: #f59e0b;
             --bg: #f8fafc;
             --card: #ffffff;
             --text: #1e293b;
@@ -29,7 +30,6 @@
         .input-group { margin-bottom: 20px; }
         label { display: block; font-weight: 700; margin-bottom: 8px; font-size: 14px; color: #475569; }
         
-        /* 콤마 포맷팅을 위해 텍스트 타입 사용 */
         input[type="text"] {
             width: 100%;
             padding: 12px;
@@ -46,12 +46,12 @@
         .stat-box {
             padding: 15px;
             border-radius: 10px;
-            margin-top: 15px;
+            margin-top: 12px;
             background: #f1f5f9;
             border-left: 5px solid var(--primary);
         }
         .stat-label { font-size: 12px; color: #64748b; font-weight: 700; }
-        .stat-val { font-size: 20px; font-weight: 700; color: #0f172a; }
+        .stat-val { font-size: 18px; font-weight: 700; color: #0f172a; }
         
         .chart-container { position: relative; height: 550px; width: 100%; }
         .summary-note {
@@ -71,8 +71,8 @@
 
 <div class="container">
     <div class="header">
-        <h1>Quest Kingdom <span style="color:var(--primary)">재무 시뮬레이션 v11.0</span></h1>
-        <p>가독성 개선 및 고정 원가 모델 (보수적 접근)</p>
+        <h1>Quest Kingdom <span style="color:var(--primary)">재무 시뮬레이션 v12.0</span></h1>
+        <p>수익 다각화 및 비용 세분화 모델 (판관비 변수 추가)</p>
     </div>
 
     <div class="grid">
@@ -87,7 +87,12 @@
             <div class="input-group">
                 <label>Year 2 시작 광고 수익 (원)</label>
                 <input type="text" id="baseAdRev" value="200,000,000">
-                <small style="color:#64748b;">* 이후 매년 10% 복리 성장</small>
+            </div>
+
+            <div class="input-group">
+                <label>연간 판관비 (인건비, 마케팅 등)</label>
+                <input type="text" id="sgaExpense" value="150,000,000">
+                <small style="color:#64748b;">* 운영에 필요한 가변적 고정비</small>
             </div>
 
             <div class="input-group">
@@ -101,15 +106,16 @@
             </div>
 
             <div class="stat-box" style="border-left-color: var(--secondary);">
-                <div class="stat-label">Year 5 매출총이익</div>
+                <div class="stat-label">Year 5 영업이익</div>
                 <div class="stat-val" id="y5Profit">0억 원</div>
             </div>
 
             <div class="summary-note">
-                <strong>숫자 포맷팅 가이드:</strong><br>
-                - 입력창에 숫자를 입력하면 <span class="highlight-formula">천 단위 콤마(,)</span>가 자동 적용됩니다.<br>
-                - <strong>B2C 성장:</strong> Year 2부터 전년 대비 <span class="highlight-formula">1.1^4</span>배 성장.<br>
-                - <strong>광고 성장:</strong> Year 2 시작값 기준 매년 <span class="highlight-formula">10%</span> 증가.
+                <strong>재무 구조 설명:</strong><br>
+                - <strong>매출원가:</strong> 2억 원 고정 (서버비 등)<br>
+                - <strong>판관비:</strong> 사용자가 설정한 고정 금액 차감<br>
+                - <strong>영업이익:</strong> 총 매출 - (원가 + 판관비)<br>
+                - <strong>성장 로직:</strong> B2C(1.1^4), 광고(1.1) 동일 적용
             </div>
         </div>
 
@@ -122,25 +128,23 @@
 </div>
 
 <script>
-    // 숫자 포맷팅 함수 (콤마 추가)
     function formatNumber(n) {
         return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     }
 
-    // 콤마 제거 함수 (계산용)
     function unformatNumber(s) {
         return parseInt(s.replace(/,/g, "")) || 0;
     }
 
     const startUsersInput = document.getElementById('startUsers');
     const baseAdRevInput = document.getElementById('baseAdRev');
+    const sgaExpenseInput = document.getElementById('sgaExpense');
     const y1RevDisp = document.getElementById('y1Rev');
     const y5ProfitDisp = document.getElementById('y5Profit');
 
     let mainChart;
 
-    // 입력 시 실시간 콤마 적용
-    [startUsersInput, baseAdRevInput].forEach(input => {
+    [startUsersInput, baseAdRevInput, sgaExpenseInput].forEach(input => {
         input.addEventListener('input', function(e) {
             let val = unformatNumber(e.target.value);
             e.target.value = formatNumber(val);
@@ -151,17 +155,19 @@
     function calculate() {
         const startUsers = unformatNumber(startUsersInput.value);
         const initialAdRevInput = unformatNumber(baseAdRevInput.value);
-        const fixedCogs = 200000000; // 연 2억 고정 원가
+        const sgaExpense = unformatNumber(sgaExpenseInput.value);
+        const fixedCogs = 200000000; // 매출원가 고정 2억
         
         const labels = ['Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5'];
         const revenueData = [];
-        const cogsData = [];
-        const grossProfitData = [];
+        const totalExpenseData = [];
+        const opProfitData = [];
 
         let currentB2C = 0;
         let currentAdRev = 0;
 
         for (let i = 1; i <= 5; i++) {
+            // 수익 계산
             if (i === 1) {
                 currentB2C = startUsers * 0.025 * Math.pow(1.25, 3) * 9900 * 12;
             } else {
@@ -177,17 +183,19 @@
             }
 
             let totalRev = currentB2C + currentAdRev;
-            let grossProfit = totalRev - fixedCogs;
+            // 비용 합계 = 고정 원가(2억) + 판관비(입력값)
+            let totalExpense = fixedCogs + sgaExpense;
+            let opProfit = totalRev - totalExpense;
 
             revenueData.push(totalRev / 100000000);
-            cogsData.push(fixedCogs / 100000000);
-            grossProfitData.push(grossProfit / 100000000);
+            totalExpenseData.push(totalExpense / 100000000);
+            opProfitData.push(opProfit / 100000000);
 
             if (i === 1) y1RevDisp.innerText = (totalRev / 100000000).toFixed(2) + '억 원';
-            if (i === 5) y5ProfitDisp.innerText = (grossProfit / 100000000).toFixed(2) + '억 원';
+            if (i === 5) y5ProfitDisp.innerText = (opProfit / 100000000).toFixed(2) + '억 원';
         }
 
-        renderChart(labels, revenueData, cogsData, grossProfitData);
+        renderChart(labels, revenueData, totalExpenseData, opProfitData);
     }
 
     function renderChart(labels, revs, costs, profits) {
@@ -200,7 +208,7 @@
                 labels: labels,
                 datasets: [
                     {
-                        label: '매출총이익 (억 원)',
+                        label: '영업이익 (억 원)',
                         data: profits,
                         type: 'line',
                         borderColor: '#10b981',
@@ -219,7 +227,7 @@
                         order: 2
                     },
                     {
-                        label: '매출원가 (고정 2억)',
+                        label: '총 비용 (원가+판관비)',
                         data: costs,
                         backgroundColor: 'rgba(239, 68, 68, 0.4)',
                         borderRadius: 6,
@@ -242,10 +250,7 @@
                         mode: 'index', 
                         intersect: false,
                         callbacks: {
-                            label: (ctx) => {
-                                // 툴팁에도 콤마 적용 (억 단위라 소수점 2자리까지)
-                                return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + '억';
-                            }
+                            label: (ctx) => ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + '억'
                         }
                     }
                 }
